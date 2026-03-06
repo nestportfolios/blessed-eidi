@@ -3,7 +3,9 @@ import random
 import io
 import time
 import base64
+import json
 from PIL import Image, ImageDraw, ImageFont
+from openai import OpenAI
 
 # Set page config
 st.set_page_config(page_title="Blessed Eidi AI", page_icon="💸", layout="centered")
@@ -12,12 +14,12 @@ st.set_page_config(page_title="Blessed Eidi AI", page_icon="💸", layout="cente
 if "step" not in st.session_state:
     st.session_state.step = 0
 
-# Handle Navigation via Query Params (Direct button in card)
+# Handle Navigation via Query Params
 if st.query_params.get("start") == "true":
     st.session_state.step = 1
-    # Clear query param to keep URL clean
     st.query_params.clear()
     st.rerun()
+
 if "user_name" not in st.session_state:
     st.session_state.user_name = ""
 if "num_of_persons" not in st.session_state:
@@ -33,12 +35,242 @@ if "distribution_done" not in st.session_state:
 if "start_time" not in st.session_state:
     st.session_state.start_time = time.time()
 
+# Chat Agent Session State
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "agent_phase" not in st.session_state:
+    st.session_state.agent_phase = "greeting"
+if "collected_data" not in st.session_state:
+    st.session_state.collected_data = {"sender": "", "names": [], "budget": 0}
+if "receipt_generated" not in st.session_state:
+    st.session_state.receipt_generated = False
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
+
 # Colors
 NEON_PURPLE = "#C77DFF"
 NEON_GREEN = "#39FF14"
 PURE_WHITE = "#FFFFFF"
 DEEP_BLACK = "#0D0D0D"
 GLASS_WHITE = "rgba(255, 255, 255, 0.85)"
+
+# --- OpenAI Agent Setup ---
+SYSTEM_PROMPT = """You are "Blessed Eidi AI" 🌙, a warm and festive Eidi distribution assistant.
+Talk in Roman Urdu mixed with English. Be friendly, fun, and use emojis.
+
+Your job is to collect information step by step:
+1. FIRST: Ask the user's name (who is GIVING Eidi)
+2. SECOND: Ask how many people they want to give Eidi to, and their names (max 15)
+3. THIRD: Ask their total budget in PKR
+
+IMPORTANT RULES:
+- Collect ONE piece of info at a time
+- Keep responses SHORT (2-3 lines max)
+- When you have the sender name, call set_sender
+- When you have ALL recipient names, call set_recipients
+- When you have the budget, call set_budget
+- After budget is set, call distribute_eidi. This handles the math.
+- **CRITICAL**: AFTER distributing Eidi, ask the user clearly: "Kya aap inki receipt generate kar ke dikhaun?" (Do you want me to generate the receipt?)
+- Wait for the user to say yes. IF they say yes, call the tool `generate_receipt`.
+- NEVER make up data. Only use what the user tells you.
+"""
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "set_sender",
+            "description": "Set the name of the person who is giving Eidi",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Sender's name"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_recipients",
+            "description": "Set the list of people who will receive Eidi",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of recipient names"
+                    }
+                },
+                "required": ["names"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_budget",
+            "description": "Set the total budget in PKR for Eidi distribution",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "integer", "description": "Total budget in PKR"}
+                },
+                "required": ["amount"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "distribute_eidi",
+            "description": "Distribute the Eidi among recipients randomly. Call this after sender, recipients, and budget are all set.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_receipt",
+            "description": "Generate and display the final Eidi receipt. Call this ONLY AFTER the user explicitly says YES to wanting a receipt.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    }
+]
+
+def handle_tool_call(tool_name, args):
+    """Process function calls from OpenAI and return results."""
+    if tool_name == "set_sender":
+        st.session_state.collected_data["sender"] = args["name"]
+        st.session_state.user_name = args["name"]
+        return f"Sender set to: {args['name']}"
+    
+    elif tool_name == "set_recipients":
+        names = args["names"][:15]  # Max 15
+        st.session_state.collected_data["names"] = names
+        st.session_state.person_names = names
+        st.session_state.num_of_persons = len(names)
+        return f"Recipients set: {', '.join(names)}"
+    
+    elif tool_name == "set_budget":
+        amount = max(1, args["amount"])
+        st.session_state.collected_data["budget"] = amount
+        st.session_state.budget = amount
+        return f"Budget set to: {amount} PKR"
+    
+    elif tool_name == "distribute_eidi":
+        n = len(st.session_state.collected_data["names"])
+        budget = st.session_state.collected_data["budget"]
+        if n == 0 or budget == 0:
+            return "Error: Need recipients and budget first"
+        if budget < n:
+            return f"Error: Budget must be at least {n} PKR"
+        rem = budget - n
+        if n == 1:
+            allocs = [budget]
+        else:
+            cuts = sorted([random.randint(0, rem) for _ in range(n - 1)])
+            allocs = [cuts[0] + 1] + [cuts[i+1] - cuts[i] + 1 for i in range(n - 2)] + [rem - cuts[-1] + 1]
+            random.shuffle(allocs)
+        st.session_state.allocations = list(zip(st.session_state.collected_data["names"], allocs))
+        result_lines = [f"{name}: {amt} PKR" for name, amt in st.session_state.allocations]
+        return "EIDI DISTRIBUTED! \n" + "\n".join(result_lines) + "\n\nNow explicitly ask the user if they want to generate a receipt."
+        
+    elif tool_name == "generate_receipt":
+        return "[RECEIPT_IMAGE] Receipt generation triggered successfully. Tell the user it's ready!"
+    
+    return "Unknown function"
+
+def chat_with_agent(user_message):
+    """Send message to OpenAI and process response with tool calling."""
+    client = OpenAI(api_key=st.session_state.api_key)
+    
+    # Build messages
+    api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for msg in st.session_state.messages:
+        api_messages.append({"role": msg["role"], "content": msg["content"]})
+    
+    # Call OpenAI
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=api_messages,
+        tools=TOOLS,
+        tool_choice="auto"
+    )
+    
+    msg = response.choices[0].message
+    
+    # Handle tool calls
+    if msg.tool_calls:
+        # Process each tool call
+        tool_results = []
+        for tool_call in msg.tool_calls:
+            fn_name = tool_call.function.name
+            fn_args = json.loads(tool_call.function.arguments)
+            result = handle_tool_call(fn_name, fn_args)
+            tool_results.append({
+                "tool_call_id": tool_call.id,
+                "role": "tool",
+                "content": result
+            })
+        
+        # If we just generated the receipt, append its special message directly
+        receipt_text = None
+        for res in tool_results:
+            if "[RECEIPT_IMAGE]" in res["content"]:
+                receipt_text = res["content"]
+                
+        if receipt_text:
+            return receipt_text
+            
+        # Send results back to get final response
+        api_messages.append(msg.model_dump())
+        api_messages.extend(tool_results)
+        
+        follow_up = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=api_messages,
+            tools=TOOLS,
+            tool_choice="auto"
+        )
+        
+        follow_msg = follow_up.choices[0].message
+        
+        # Handle any chained tool calls
+        if follow_msg.tool_calls:
+            for tool_call in follow_msg.tool_calls:
+                fn_name = tool_call.function.name
+                fn_args = json.loads(tool_call.function.arguments)
+                handle_tool_call(fn_name, fn_args)
+            api_messages.append(follow_msg.model_dump())
+            for tc in follow_msg.tool_calls:
+                api_messages.append({
+                    "tool_call_id": tc.id,
+                    "role": "tool",
+                    "content": handle_tool_call(tc.function.name, json.loads(tc.function.arguments))
+                })
+            final = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=api_messages,
+                tools=TOOLS,
+                tool_choice="auto"
+            )
+            return final.choices[0].message.content or "✅"
+        
+        return follow_msg.content or "✅"
+    
+    return msg.content or "✅"
+
 
 # Navigation Functions
 def next_step():
@@ -85,15 +317,19 @@ st.markdown(f"""
             background: linear-gradient(90deg, {NEON_PURPLE} 0%, {NEON_GREEN} 100%) !important;
             color: {DEEP_BLACK} !important;
             border: none !important;
-            border-radius: 12px !important;
+            border-radius: 8px !important;
             font-weight: 700;
-            padding: 14px 28px;
-            width: 100%;
+            padding: 4px 12px;
+            width: auto;
+            min-width: 100px;
+            min-height: 32px;
+            font-size: 0.85rem;
             transition: all 0.3s ease;
+            margin: 0 !important;
         }}
         .stButton>button:hover {{
-            transform: translateY(-3px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
         }}
 
         div[data-testid="stInfo"] {{
@@ -122,15 +358,15 @@ st.markdown(f"""
         .whatsapp-footer {{
             position: fixed;
             left: 0;
-            top: 50px;
+            bottom: 0px;
             width: 100%;
             background: {DEEP_BLACK};
             color: {NEON_GREEN};
             overflow: hidden;
-            padding: 12px 0;
+            padding: 4px 0;
             z-index: 1000;
-            border-bottom: 2px solid {NEON_PURPLE};
-            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            border-top: 1px solid {NEON_PURPLE};
+            box-shadow: 0 -5px 10px rgba(0,0,0,0.2);
         }}
         
         .marquee-content {{
@@ -153,20 +389,20 @@ st.markdown(f"""
         }}
 
         .whatsapp-footer span {{
-            font-size: 1.2rem;
-            font-weight: 700;
+            font-size: 1rem;
+            font-weight: 600;
         }}
 
         .whatsapp-footer a {{
             color: {NEON_GREEN} !important;
             text-decoration: none !important;
-            border: 2px solid {NEON_GREEN};
-            padding: 8px 20px;
-            border-radius: 12px;
+            border: 1px solid {NEON_GREEN};
+            padding: 2px 10px;
+            border-radius: 6px;
             transition: all 0.3s ease;
             display: inline-block;
-            font-size: 1.1rem;
-            font-weight: 700;
+            font-size: 0.85rem;
+            font-weight: 600;
         }}
         .whatsapp-footer a.samples-btn {{
             background: {NEON_PURPLE};
@@ -215,6 +451,7 @@ st.markdown(f"""
             transition: all 0.3s ease;
             display: block;
             margin-top: 20px;
+            box-sizing: border-box;
         }}
         .distribute-btn-custom:hover {{
             transform: translateY(-3px);
@@ -227,41 +464,33 @@ st.markdown(f"""
             transform: translateY(-1px);
         }}
         
-        /* Padding for Main Content to avoid overlapping header and footer */
+        /* Padding for Main Content to avoid overlapping header and footer/chat input */
         .main .block-container {{
-            padding-top: 100px;
-            padding-bottom: 100px;
+            padding-top: 40px;
+            padding-bottom: 50px; /* Reduced to basic padding, physical spacer handles the rest */
         }}
 
-        /* Static Bottom Footer */
-        .static-footer {{
-            position: fixed;
-            left: 0;
-            bottom: 0;
-            width: 100%;
-            background: {DEEP_BLACK};
-            padding: 12px 0;
-            text-align: center;
-            z-index: 1000;
-            border-top: 2px solid {NEON_PURPLE};
-            box-shadow: 0 -10px 20px rgba(0,0,0,0.3);
+
+        /* Chat input position adjustment */
+        .stChatInput {{
+            position: fixed !important;
+            bottom: 110px !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            width: 85% !important;
+            max-width: 800px !important;
+            margin: 0 !important;
+            z-index: 100;
         }}
-        .static-footer a {{
-            background: {NEON_PURPLE};
-            color: {DEEP_BLACK} !important;
-            text-decoration: none !important;
-            border: none;
-            padding: 10px 30px;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            font-weight: 700;
-            transition: all 0.3s ease;
-            display: inline-block;
+
+        .voice-btn.recording {{
+            animation: pulse 1s infinite;
+            background: linear-gradient(90deg, #ff4444, #ff6666) !important;
         }}
-        .static-footer a:hover {{
-            background: {NEON_GREEN};
-            box-shadow: 0 0 20px {NEON_GREEN};
-            transform: scale(1.05);
+        @keyframes pulse {{
+            0% {{ box-shadow: 0 0 0 0 rgba(255,68,68,0.7); }}
+            70% {{ box-shadow: 0 0 0 15px rgba(255,68,68,0); }}
+            100% {{ box-shadow: 0 0 0 0 rgba(255,68,68,0); }}
         }}
     </style>
 """, unsafe_allow_html=True)
@@ -316,17 +545,21 @@ def generate_classic_receipt(giver, total, details):
     draw.line([20, y_header_end, w, y_header_end], fill=p_purple, width=5)
     
     try:
-        font_large = ImageFont.load_default(size=90)
+        font_path = "bahnschrift.ttf"
+        font_large = ImageFont.truetype(font_path, size=85)
+        
         giver_len = len(giver)
         gf_size = 35
-        if giver_len > 12: gf_size = max(30, 55 - (giver_len - 12) * 2)
-        font_giver = ImageFont.load_default(size=gf_size)
-        list_f_size = 38
-        if n > 10: list_f_size = 28
-        if n > 15: list_f_size = 22
-        font_small = ImageFont.load_default(size=list_f_size)
-        font_med = ImageFont.load_default(size=55)
-        font_tiny = ImageFont.load_default(size=30)
+        if giver_len > 12: gf_size = max(28, 55 - (giver_len - 12) * 2)
+        font_giver = ImageFont.truetype(font_path, size=gf_size)
+        
+        list_f_size = 32
+        if n > 10: list_f_size = 26
+        if n > 15: list_f_size = 20
+        font_small = ImageFont.truetype(font_path, size=list_f_size)
+        
+        font_med = ImageFont.truetype(font_path, size=55)
+        font_tiny = ImageFont.truetype(font_path, size=28)
     except:
         font_large = font_giver = font_med = font_small = font_tiny = ImageFont.load_default()
 
@@ -376,77 +609,93 @@ if st.session_state.step == 0:
         </div>
     """, unsafe_allow_html=True)
 
-# --- STEP 1 ---
+# --- STEP 1: AI CHAT AGENT ---
 elif st.session_state.step == 1:
-    st.header("👤 Who's Sending EIDI?")
-    st.session_state.user_name = st.text_input("ENTER YOUR NAME", value=st.session_state.user_name, placeholder="e.g. John Doe")
-    if st.button("PROCEED TO SQUAD ⚡"):
-        if st.session_state.user_name: next_step(); st.rerun()
-        else: st.warning("Identity Required.")
-
-# --- STEP 2 ---
-elif st.session_state.step == 2:
-    st.header("👥 EIDI Lenay Walay")
-    st.session_state.num_of_persons = st.number_input("How many persons do you want to give EIDI?", min_value=1, max_value=15, value=st.session_state.num_of_persons)
-    p_names = []
-    for i in range(int(st.session_state.num_of_persons)):
-        saved = st.session_state.person_names[i] if i < len(st.session_state.person_names) else ""
-        n = st.text_input(f"MEMBER {i+1}", value=saved, key=f"p_{i}", placeholder="Name")
-        p_names.append(n.strip())
-    st.session_state.person_names = p_names
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([5, 2])
     with col1:
-        if st.button("⬅️ PREV"): prev_step(); st.rerun()
+        st.markdown("<h3 style='margin:0; padding:4px 0 0 0; font-size:1.2rem;'>🤖 Blessed Eidi AI Agent</h3>", unsafe_allow_html=True)
     with col2:
-        if st.button("CONFIRMED ⚡"):
-            if all(st.session_state.person_names): next_step(); st.rerun()
-            else: st.warning("Provide all names.")
-
-# --- STEP 3 ---
-elif st.session_state.step == 3:
-    st.header("💰 Your Total Budget")
-    st.session_state.budget = st.number_input("TOTAL PKR BUDGET", min_value=1, value=st.session_state.budget)
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ PREV"): prev_step(); st.rerun()
-    with col2:
-        if st.button("DISTRIBUTE EIDI 🚀"):
-            n = int(st.session_state.num_of_persons)
-            if st.session_state.budget < n: st.error(f"Need {n} PKR")
+        if st.button("🔄 Reset Chat"):
+            st.session_state.messages = []
+            st.session_state.agent_phase = "greeting"
+            st.session_state.collected_data = {"sender": "", "names": [], "budget": 0}
+            st.session_state.distribution_done = False
+            st.session_state.receipt_generated = False
+            st.session_state.allocations = []
+            st.rerun()
+    
+    # API Key set in backend
+    if not st.session_state.api_key:
+        st.session_state.api_key = "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"
+    
+    # Show greeting if no messages yet
+    if not st.session_state.messages:
+        greeting = "Assalam-o-Alaikum! 🌙✨ Main hoon aapka Blessed Eidi AI assistant. Aayein shuru kartay hain!\n\n**Pehle batayein, EIDI kaun de raha hai? Apna naam batayein!** 😊"
+        st.session_state.messages.append({"role": "assistant", "content": greeting})
+    
+    # Display chat history
+    for idx, msg in enumerate(st.session_state.messages):
+        with st.chat_message(msg["role"]):
+            if "[RECEIPT_IMAGE]" in msg["content"]:
+                # Clean the message text
+                clean_msg = msg["content"].replace("[RECEIPT_IMAGE]", "").strip()
+                if clean_msg:
+                    st.markdown(clean_msg)
+                
+                # Render the receipt immediately after
+                with st.spinner("Receipt generate ho rahi hai... 🎨"):
+                    byte_im = generate_classic_receipt(
+                        st.session_state.user_name,
+                        st.session_state.budget,
+                        st.session_state.allocations
+                    )
+                    st.markdown('<div class="receipt-container">', unsafe_allow_html=True)
+                    st.image(byte_im, width="stretch")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    st.download_button(
+                        label="📥 DOWNLOAD RECEIPT (IMAGE)",
+                        data=byte_im,
+                        file_name=f"EIDI_Receipt_{st.session_state.user_name}_{idx}.png",
+                        mime="image/png",
+                        key=f"download_receipt_{idx}"
+                    )
+                    
+                    # Portfolio promotion under each receipt
+                    promo = "\n\n💼 **Agar aap ek professional Portfolio Website bnwana chahte hein to neeche SAMPLES check karein aur NestPortfolio ko contact karein!** Sirf 2500 PKR mein premium portfolio! 🚀"
+                    st.markdown(promo)
             else:
-                rem = st.session_state.budget-n
-                if n==1: allocs=[st.session_state.budget]
-                else:
-                    cuts = sorted([random.randint(0,rem) for _ in range(n-1)])
-                    cuts = [0]+cuts+[rem]; allocs=[(cuts[i+1]-cuts[i]+1) for i in range(n)]
-                random.shuffle(allocs)
-                st.session_state.allocations = list(zip(st.session_state.person_names, allocs))
-                next_step(); st.snow(); st.rerun()
-
-# --- STEP 4 ---
-elif st.session_state.step == 4:
-    st.header("✅ EIDI Distributed")
-    st.success(f"PROCESSED FOR: {st.session_state.user_name.upper()}")
-    ui_icons = ["💎", "🔋", "🦾", "📡", "🛸", "🧠", "🔥", "🚀"]
-    for i, (name, amount) in enumerate(st.session_state.allocations, 1):
-        ico = ui_icons[i % len(ui_icons)]
-        st.info(f"**{i:02d} | {name.upper()} {ico} {amount} PKR**")
-    st.divider()
-    if st.button("GENERATE RECEIPT"):
-        with st.spinner("Rendering technical artifact..."):
-            byte_im = generate_classic_receipt(st.session_state.user_name, st.session_state.budget, st.session_state.allocations)
-            st.markdown('<div class="receipt-container">', unsafe_allow_html=True)
-            st.image(byte_im, width="stretch")
-            st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(msg["content"])
             
-            st.download_button(
-                label="📥 DOWNLOAD RECEIPT (IMAGE)",
-                data=byte_im,
-                file_name=f"EIDI_Receipt_{st.session_state.user_name}.png",
-                mime="image/png"
-            )
-            st.balloons()
-    if st.button("🔄 REBOOT SYSTEM"): reset_app(); st.rerun()
+    # Spacer to prevent chat hiding behind fixed input
+    st.markdown("<div style='height: 150px;'></div>", unsafe_allow_html=True)
+
+    
+    # Chat text input
+    user_input = None
+    typed_input = st.chat_input("Type your message...")
+    if typed_input:
+        user_input = typed_input
+    
+    # Process user input (from either voice or typing)
+    if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+        
+        with st.spinner("Soch raha hoon... 🤔"):
+            try:
+                response = chat_with_agent(user_input)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                
+                with st.chat_message("assistant"):
+                    st.markdown(response)
+                
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+                # Remove the user message since it failed
+                st.session_state.messages.pop()
+
 
 # --- Persistent WhatsApp Footer ---
 def get_pdf_download_link(file_path):
@@ -477,13 +726,3 @@ st.markdown(f"""
         </div>
     </div>
 """, unsafe_allow_html=True)
-
-# --- Static Bottom Footer ---
-st.markdown(f"""
-    <div class="static-footer">
-        <a href="{pdf_link}" download="NestPortfolios.pdf">
-            📂 Check SAMPLES here
-        </a>
-    </div>
-""", unsafe_allow_html=True)
-
