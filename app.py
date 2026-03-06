@@ -298,11 +298,17 @@ st.markdown(f"""
         }}
 
         .stApp {{
-            background: radial-gradient(circle at 50% 50%, {PURE_WHITE} 40%, #f0f0f0 100%);
+            /* Let Streamlit handle base background color */
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }}
+
+        
+        /* Exceptions for elements that need specific colors */
+        .whatsapp-footer span, .whatsapp-footer a {{
+            color: {NEON_GREEN} !important;
         }}
 
         h1, h2, h3 {{
-            color: {DEEP_BLACK} !important;
             font-weight: 700 !important;
             letter-spacing: -1px;
         }}
@@ -333,10 +339,11 @@ st.markdown(f"""
         }}
 
         div[data-testid="stInfo"] {{
-            background: {GLASS_WHITE} !important;
+            background: transparent !important;
             border-left: 8px solid {NEON_GREEN} !important;
             border-radius: 16px;
             padding: 20px !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }}
 
         .stProgress > div > div > div > div {{
@@ -346,9 +353,10 @@ st.markdown(f"""
 
         .receipt-container {{
             background: {PURE_WHITE};
+            color: {DEEP_BLACK}; /* Receipt should always look like white paper */
             border-radius: 20px;
             padding: 20px;
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
             text-align: center;
         }}
 
@@ -422,10 +430,11 @@ st.markdown(f"""
         
         /* Preloader Central Card */
         .preloader-card {{
-            background: {PURE_WHITE};
+            background: rgba(128, 128, 128, 0.05);
+            backdrop-filter: blur(10px);
             border-radius: 24px;
             padding: 40px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
             text-align: center;
             border: 1px solid rgba(199, 125, 255, 0.3);
             max-width: 500px;
