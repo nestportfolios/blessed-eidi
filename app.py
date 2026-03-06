@@ -122,15 +122,15 @@ st.markdown(f"""
         .whatsapp-footer {{
             position: fixed;
             left: 0;
-            bottom: 0;
+            top: 0;
             width: 100%;
             background: {DEEP_BLACK};
             color: {NEON_GREEN};
             overflow: hidden;
             padding: 15px 0;
             z-index: 1000;
-            border-top: 2px solid {NEON_PURPLE};
-            box-shadow: 0 -10px 20px rgba(0,0,0,0.3);
+            border-bottom: 2px solid {NEON_PURPLE};
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
         }}
         
         .marquee-content {{
@@ -227,14 +227,14 @@ st.markdown(f"""
             transform: translateY(-1px);
         }}
         
-        /* Padding for Main Content to avoid overlapping footer */
+        /* Padding for Main Content to avoid overlapping header */
         .main .block-container {{
-            padding-bottom: 120px;
+            padding-top: 100px;
         }}
     </style>
 """, unsafe_allow_html=True)
 
-st.title("💸 Blessed Eidi AI")
+# st.title("💸 Blessed Eidi AI")
 
 # Progress Indicator (Only for Step 1+)
 if st.session_state.step > 0:
@@ -334,7 +334,7 @@ if st.session_state.step == 0:
     st.markdown(f"""
         <div class="preloader-card">
             <h1 style="font-size: 3rem; margin-bottom: 10px;">🌟</h1>
-            <h2 style="margin-bottom: 20px;">Ready for the Mission?</h2>
+            <h2 style="margin-bottom: 20px;">💸 Blessed Eidi AI 💸</h2>
             <p style="color: #666; margin-bottom: 30px; font-size: 1.1rem;">
                 Calculate and distribute your Eidi with our AI-powered tech agent.
             </p>
@@ -346,7 +346,7 @@ if st.session_state.step == 0:
 
 # --- STEP 1 ---
 elif st.session_state.step == 1:
-    st.header("👤 Who's Sending?")
+    st.header("👤 Who's Sending EIDI?")
     st.session_state.user_name = st.text_input("ENTER YOUR NAME", value=st.session_state.user_name, placeholder="e.g. John Doe")
     if st.button("PROCEED TO SQUAD ⚡"):
         if st.session_state.user_name: next_step(); st.rerun()
@@ -354,8 +354,8 @@ elif st.session_state.step == 1:
 
 # --- STEP 2 ---
 elif st.session_state.step == 2:
-    st.header("👥 Define The Squad")
-    st.session_state.num_of_persons = st.number_input("How many persons do you want to give EIDI?", min_value=1, max_value=30, value=st.session_state.num_of_persons)
+    st.header("👥 EIDI Lenay Walay")
+    st.session_state.num_of_persons = st.number_input("How many persons do you want to give EIDI?", min_value=1, max_value=15, value=st.session_state.num_of_persons)
     p_names = []
     for i in range(int(st.session_state.num_of_persons)):
         saved = st.session_state.person_names[i] if i < len(st.session_state.person_names) else ""
@@ -372,7 +372,7 @@ elif st.session_state.step == 2:
 
 # --- STEP 3 ---
 elif st.session_state.step == 3:
-    st.header("💰 Resource Allocation")
+    st.header("💰 Your Total Budget")
     st.session_state.budget = st.number_input("TOTAL PKR BUDGET", min_value=1, value=st.session_state.budget)
     col1, col2 = st.columns(2)
     with col1:
@@ -393,7 +393,7 @@ elif st.session_state.step == 3:
 
 # --- STEP 4 ---
 elif st.session_state.step == 4:
-    st.header("✅ MISSION COMPLETE")
+    st.header("✅ EIDI Distributed")
     st.success(f"PROCESSED FOR: {st.session_state.user_name.upper()}")
     ui_icons = ["💎", "🔋", "🦾", "📡", "🛸", "🧠", "🔥", "🚀"]
     for i, (name, amount) in enumerate(st.session_state.allocations, 1):
@@ -402,12 +402,17 @@ elif st.session_state.step == 4:
     st.divider()
     if st.button("GENERATE RECEIPT"):
         with st.spinner("Rendering technical artifact..."):
-            img = generate_classic_receipt(st.session_state.user_name, st.session_state.budget, st.session_state.allocations)
+            byte_im = generate_classic_receipt(st.session_state.user_name, st.session_state.budget, st.session_state.allocations)
             st.markdown('<div class="receipt-container">', unsafe_allow_html=True)
-            st.image(img, width="stretch")
+            st.image(byte_im, width="stretch")
             st.markdown('</div>', unsafe_allow_html=True)
-            st.write("")
-            st.download_button("📥 DOWNLOAD MEMORY", data=img, file_name=f"Blessed_EIDI_{st.session_state.user_name}.png")
+            
+            st.download_button(
+                label="📥 DOWNLOAD RECEIPT (IMAGE)",
+                data=byte_im,
+                file_name=f"EIDI_Receipt_{st.session_state.user_name}.png",
+                mime="image/png"
+            )
             st.balloons()
     if st.button("🔄 REBOOT SYSTEM"): reset_app(); st.rerun()
 
