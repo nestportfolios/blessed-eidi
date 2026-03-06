@@ -122,12 +122,12 @@ st.markdown(f"""
         .whatsapp-footer {{
             position: fixed;
             left: 0;
-            top: 70px;
+            top: 50px;
             width: 100%;
             background: {DEEP_BLACK};
             color: {NEON_GREEN};
             overflow: hidden;
-            padding: 15px 0;
+            padding: 12px 0;
             z-index: 1000;
             border-bottom: 2px solid {NEON_PURPLE};
             box-shadow: 0 10px 20px rgba(0,0,0,0.3);
@@ -486,3 +486,4 @@ st.markdown(f"""
         </a>
     </div>
 """, unsafe_allow_html=True)
+
