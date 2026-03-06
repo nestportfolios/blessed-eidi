@@ -122,7 +122,7 @@ st.markdown(f"""
         .whatsapp-footer {{
             position: fixed;
             left: 0;
-            top: 0;
+            top: 70px;
             width: 100%;
             background: {DEEP_BLACK};
             color: {NEON_GREEN};
@@ -227,9 +227,41 @@ st.markdown(f"""
             transform: translateY(-1px);
         }}
         
-        /* Padding for Main Content to avoid overlapping header */
+        /* Padding for Main Content to avoid overlapping header and footer */
         .main .block-container {{
             padding-top: 100px;
+            padding-bottom: 100px;
+        }}
+
+        /* Static Bottom Footer */
+        .static-footer {{
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background: {DEEP_BLACK};
+            padding: 12px 0;
+            text-align: center;
+            z-index: 1000;
+            border-top: 2px solid {NEON_PURPLE};
+            box-shadow: 0 -10px 20px rgba(0,0,0,0.3);
+        }}
+        .static-footer a {{
+            background: {NEON_PURPLE};
+            color: {DEEP_BLACK} !important;
+            text-decoration: none !important;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }}
+        .static-footer a:hover {{
+            background: {NEON_GREEN};
+            box-shadow: 0 0 20px {NEON_GREEN};
+            transform: scale(1.05);
         }}
     </style>
 """, unsafe_allow_html=True)
@@ -443,5 +475,14 @@ st.markdown(f"""
             <span>&nbsp; &bull; &nbsp;</span>
             <span>Boost your career with a professional portfolio. Fast delivery & Premium Design!</span>
         </div>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- Static Bottom Footer ---
+st.markdown(f"""
+    <div class="static-footer">
+        <a href="{pdf_link}" download="NestPortfolios.pdf">
+            📂 Check SAMPLES here
+        </a>
     </div>
 """, unsafe_allow_html=True)
