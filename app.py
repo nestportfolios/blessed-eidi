@@ -483,7 +483,7 @@ st.markdown(f"""
         /* Chat input position adjustment */
         .stChatInput {{
             position: fixed !important;
-            bottom: 110px !important;
+            bottom: 60px !important;
             left: 50% !important;
             transform: translateX(-50%) !important;
             width: 85% !important;
@@ -554,21 +554,17 @@ def generate_classic_receipt(giver, total, details):
     draw.line([20, y_header_end, w, y_header_end], fill=p_purple, width=5)
     
     try:
-        font_path = "bahnschrift.ttf"
-        font_large = ImageFont.truetype(font_path, size=85)
-        
+        font_large = ImageFont.load_default(size=90)
         giver_len = len(giver)
         gf_size = 35
-        if giver_len > 12: gf_size = max(28, 55 - (giver_len - 12) * 2)
-        font_giver = ImageFont.truetype(font_path, size=gf_size)
-        
-        list_f_size = 32
-        if n > 10: list_f_size = 26
-        if n > 15: list_f_size = 20
-        font_small = ImageFont.truetype(font_path, size=list_f_size)
-        
-        font_med = ImageFont.truetype(font_path, size=55)
-        font_tiny = ImageFont.truetype(font_path, size=28)
+        if giver_len > 12: gf_size = max(30, 55 - (giver_len - 12) * 2)
+        font_giver = ImageFont.load_default(size=gf_size)
+        list_f_size = 38
+        if n > 10: list_f_size = 28
+        if n > 15: list_f_size = 22
+        font_small = ImageFont.load_default(size=list_f_size)
+        font_med = ImageFont.load_default(size=55)
+        font_tiny = ImageFont.load_default(size=30)
     except:
         font_large = font_giver = font_med = font_small = font_tiny = ImageFont.load_default()
 
