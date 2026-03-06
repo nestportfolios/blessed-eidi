@@ -624,9 +624,13 @@ elif st.session_state.step == 1:
             st.session_state.allocations = []
             st.rerun()
     
-    # API Key set in backend
+    # API Key set in backend securely
     if not st.session_state.api_key:
-        st.session_state.api_key = "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"
+        try:
+            st.session_state.api_key = st.secrets["OPENAI_API_KEY"]
+        except Exception:
+            st.error("API Key not found in .streamlit/secrets.toml!")
+            st.stop()
     
     # Show greeting if no messages yet
     if not st.session_state.messages:
