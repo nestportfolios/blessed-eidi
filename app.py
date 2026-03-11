@@ -175,12 +175,20 @@ def handle_tool_call(tool_name, args):
             return "Error: Need recipients and budget first"
         if budget < n:
             return f"Error: Budget must be at least {n} PKR"
-        rem = budget - n
         if n == 1:
             allocs = [budget]
         else:
-            cuts = sorted([random.randint(0, rem) for _ in range(n - 1)])
-            allocs = [cuts[0] + 1] + [cuts[i+1] - cuts[i] + 1 for i in range(n - 2)] + [rem - cuts[-1] + 1]
+            avg = budget / n
+            # Each person gets between 60% and 150% of average — random but fair
+            lower = max(1, int(avg * 0.60))
+            upper = max(lower + 1, int(avg * 1.50))
+            raw = [random.randint(lower, upper) for _ in range(n)]
+            total = sum(raw)
+            # Scale proportionally so they sum to budget
+            allocs = [int(a * budget / total) for a in raw]
+            # Fix any rounding gap
+            diff = budget - sum(allocs)
+            allocs[0] += diff
             random.shuffle(allocs)
         st.session_state.allocations = list(zip(st.session_state.collected_data["names"], allocs))
         result_lines = [f"{name}: {amt} PKR" for name, amt in st.session_state.allocations]
